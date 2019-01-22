@@ -50,11 +50,10 @@ module.exports = function module (moduleOptions) {
   }
 
   // Extend routes
-  this.extendRoutes(routes => {
+  this.extendRoutes((routes) => {
     // Map to path and filter dynamic routes
-    let staticRoutes = routes
-      .map(r => r.path)
-      .filter(r => !r.includes(':') && !r.includes('*'))
+    let staticRoutes = getRoutesPaths(routes)
+    .filter(r => !r.includes(':') && !r.includes('*'))
 
     // Exclude routes
     options.exclude.forEach(pattern => {
@@ -98,15 +97,15 @@ module.exports = function module (moduleOptions) {
       path: options.pathGzip,
       handler (req, res, next) {
         cache.get('routes')
-          .then(routes => createSitemap(options, routes, req))
-          .then(sitemap => sitemap.toGzip())
-          .then(gzip => {
-            res.setHeader('Content-Type', 'application/x-gzip')
-            res.setHeader('Content-Encoding', 'gzip')
-            res.end(gzip)
-          }).catch(err => {
-            next(err)
-          })
+        .then(routes => createSitemap(options, routes, req))
+        .then(sitemap => sitemap.toGzip())
+        .then(gzip => {
+          res.setHeader('Content-Type', 'application/x-gzip')
+          res.setHeader('Content-Encoding', 'gzip')
+          res.end(gzip)
+        }).catch(err => {
+          next(err)
+        })
       }
     })
   }
@@ -116,14 +115,14 @@ module.exports = function module (moduleOptions) {
     path: options.path,
     handler (req, res, next) {
       cache.get('routes')
-        .then(routes => createSitemap(options, routes, req))
-        .then(sitemap => sitemap.toXML())
-        .then(xml => {
-          res.setHeader('Content-Type', 'application/xml')
-          res.end(xml)
-        }).catch(err => {
-          next(err)
-        })
+      .then(routes => createSitemap(options, routes, req))
+      .then(sitemap => sitemap.toXML())
+      .then(xml => {
+        res.setHeader('Content-Type', 'application/xml')
+        res.end(xml)
+      }).catch(err => {
+        next(err)
+      })
     }
   })
 }
@@ -134,13 +133,13 @@ function createCache (staticRoutes, options) {
     maxAge: options.cacheTime,
     load (_, callback) {
       promisifyRoute(options.routes)
-        .then(routes => routesUnion(staticRoutes, routes))
-        .then(routes => {
-          callback(null, routes)
-        })
-        .catch(err => {
-          callback(err)
-        })
+      .then(routes => routesUnion(staticRoutes, routes))
+      .then(routes => {
+        callback(null, routes)
+      })
+      .catch(err => {
+        callback(err)
+      })
     }
   })
   cache.get = promisify(cache.get)
@@ -154,7 +153,7 @@ function createSitemap (options, routes, req) {
 
   // Set sitemap hostname
   sitemapConfig.hostname = options.hostname ||
-    (req && `${isHTTPS(req) ? 'https' : 'http'}://${req.headers.host}`) || `http://${hostname()}`
+  (req && `${isHTTPS(req) ? 'https' : 'http'}://${req.headers.host}`) || `http://${hostname()}`
 
   // Enable filter function for each declared route
   if (typeof options.filter === 'function') {
@@ -210,4 +209,35 @@ function routesUnion (staticRoutes, optionsRoutes) {
 // Make sure a passed route is an object
 function ensureRouteIsObject (route) {
   return typeof route === 'object' ? route : { url: route }
+}
+
+// Transforms router's routes to an array of paths
+function getRoutesPaths (routes) {
+  return flatten(routes.map(parseRoute))
+
+  // Get route path including children
+  function parseRoute (route, prefix = '') {
+    let isAbsolutePath = route.path[0] === '/'
+    let path = isAbsolutePath ? route.path : prefix + '/' + route.path
+
+    let children = []
+    if (route.children) {
+      children = route.children.map(child => parseRoute(child, path))
+    }
+
+    return [path, ...children]
+  }
+
+  // Flatten sub-arrays to a single array
+  function flatten (array) {
+    return array.reduce((acc, slot) => {
+      if (Array.isArray(slot)) {
+        acc = acc.concat(flatten(slot))
+      } else {
+        acc.push(slot)
+      }
+
+      return acc
+    }, [])
+  }
 }
